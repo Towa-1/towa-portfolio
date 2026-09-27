@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Flow Interactive Scrub Engine — 3D Subsurface Reservoir Dynamics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #08090b;
+      --surface: #0f1013;
+      --border: #1f2228;
+      --border-accent: #2c323d;
+      --text: #f0f2f5;
+      --text-muted: #8c929d;
+      --text-dim: #555b66;
+      --cyan: #38bdf8;
+      --amber: #fbbf24;
+      --emerald: #34d399;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.6;
+    }
+
+    /* Top Floating Telemetry Bar */
+    header.hud-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 20px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+      pointer-events: none;
+    }
+    .hud-left, .hud-right {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .badge-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--cyan);
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 6px 14px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+    .telemetry-readout {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* Scroll Track Container (350vh for smooth Apple-grade scrubbing) */
+    .scroll-track {
+      position: relative;
+      height: 380vh;
+      background: var(--bg);
+    }
+
+    /* Sticky Canvas Viewport */
+    .canvas-viewport-wrap {
+      position: sticky;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    canvas#scrubCanvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      /* Subtle vignette blend */
+      filter: contrast(1.05) brightness(1.02);
+    }
+
+    /* Dynamic Narrative Text Overlays */
+    .story-layers {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .story-step {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 0 8vw;
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      pointer-events: none;
+    }
+
+    .story-step.active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .story-card {
+      max-width: 440px;
+      background: rgba(15, 16, 19, 0.88);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 28px;
+      backdrop-filter: blur(8px);
+    }
+
+    .step-number {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+      display: block;
+    }
+    .step-title {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      line-height: 1.25;
+    }
+    .step-body {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .specs-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .spec-item span:first-child {
+      color: var(--text-dim);
+      display: block;
+    }
+    .spec-item span:last-child {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* Fixed Bottom Control Bar */
+    footer.hud-footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      padding: 24px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+      pointer-events: none;
+      background: linear-gradient(180deg, transparent 0%, rgba(8, 9, 11, 0.9) 100%);
+    }
+    .footer-left, .footer-center, .footer-right {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .scrub-indicator {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .scrub-bar-track {
+      width: 180px;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+    }
+    .scrub-bar-progress {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 0%;
+      background: var(--cyan);
+      transition: width 0.05s linear;
+    }
+    .interactive-mode-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .interactive-mode-btn:hover {
+      color: var(--text);
+      border-color: var(--border-accent);
+      background: #15181e;
+    }
+    .interactive-mode-btn.active {
+      color: var(--cyan);
+      border-color: rgba(56, 189, 248, 0.4);
+      background: rgba(56, 189, 248, 0.06);
+    }
+
+    /* Drag-to-Scrub Turntable Overlay (Optional Interactive Mode) */
+    .drag-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 50;
+      cursor: grab;
+      display: none;
+    }
+    .drag-overlay.active {
+      display: block;
+    }
+    .drag-overlay:active {
+      cursor: grabbing;
+    }
+    .drag-hint {
+      position: absolute;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-dim);
+      background: rgba(15, 16, 19, 0.9);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 20px;
+      pointer-events: none;
+    }
+
+    /* Intro Curtain */
+    .intro-splash {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      transition: opacity 0.5s ease;
+    }
+    .loader-ring {
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--border);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Preload Splash Screen -->
+  <div class="intro-splash" id="loaderSplash">
+    <div class="loader-ring"></div>
+    <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-dim);">
+      CACHING 96 HIGH-RESOLUTION FRAMES FROM GOOGLE FLOW...
+    </div>
+  </div>
+
+  <!-- HUD Top Bar -->
+  <header class="hud-header">
+    <div class="hud-left">
+      <div class="badge-pill">
+        <span class="status-dot"></span>
+        <span>GOOGLE FLOW (VEO) SCENE SCRUBBER</span>
+      </div>
+      <span class="telemetry-readout" id="fpsReadout">60 FPS</span>
+    </div>
+    <div class="hud-right">
+      <span class="telemetry-readout">SUB-SURFACE HYDROCARBON SIMULATION</span>
+      <a href="../portfolio/index.html" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-decoration: none; border: 1px solid var(--border); padding: 5px 12px; border-radius: 4px;">&larr; Return to Portfolio</a>
+    </div>
+  </header>
+
+  <!-- Interactive Drag Overlay (Activated when toggled) -->
+  <div class="drag-overlay" id="dragOverlay">
+    <div class="drag-hint">&harr; DRAG HORIZONTALLY TO SCRUB 3D ROTATION</div>
+  </div>
+
+  <!-- 380vh Scroll Track -->
+  <div class="scroll-track" id="scrollTrack">
+    
+    <!-- Pinned Canvas Stage -->
+    <div class="canvas-viewport-wrap">
+      <canvas id="scrubCanvas"></canvas>
+    </div>
+
+    <!-- Step Narrative Layers Pinned along Scroll -->
+    <div class="story-layers">
+      
+      <!-- Step 1: 0% - 25% -->
+      <div class="story-step active" id="step1" data-start="0" data-end="0.25">
+        <div class="story-card">
+          <span class="step-number">PHASE 01 / FORMATION SCAN</span>
+          <h2 class="step-title">Subsurface Matrix Architecture</h2>
+          <p class="step-body">
+            Reconstructed 3D pore network of a deep sandstone formation. Micro-CT density mapping identifies continuous fluid migration pathways and matrix permeability channels.
+          </p>
+          <div class="specs-grid">
+            <div class="spec-item">
+              <span>POROSITY</span>
+              <span>24.8% Effective</span>
+            </div>
+            <div class="spec-item">
+              <span>PERMEABILITY</span>
+              <span>182 mD</span>
+            </div>
+            <div class="spec-item">
+              <span>FORMATION DEPTH</span>
+              <span>2,840 m Subsea</span>
+            </div>
+            <div class="spec-item">
+              <span>RENDER SOURCE</span>
+              <span>Google Flow (Veo)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: 25% - 50% -->
+      <div class="story-step" id="step2" data-start="0.25" data-end="0.50">
+        <div class="story-card" style="margin-left: auto;">
+          <span class="step-number">PHASE 02 / INJECTION DYNAMICS</span>
+          <h2 class="step-title">Supercritical CO₂ Injection</h2>
+          <p class="step-body">
+            High-pressure injection phase initiates. Glowing blue stream lines reveal supercritical carbon dioxide displacing native brine along preferential fracture vectors.
+          </p>
+          <div class="specs-grid">
+            <div class="spec-item">
+              <span>INJECTION PRESSURE</span>
+              <span>16.4 MPa</span>
+            </div>
+            <div class="spec-item">
+              <span>FLOW REGIME</span>
+              <span>Laminar / Darcy</span>
+            </div>
+            <div class="spec-item">
+              <span>VISCOSITY RATIO</span>
+              <span>0.068 (Supercritical)</span>
+            </div>
+            <div class="spec-item">
+              <span>DISPLACEMENT EFF.</span>
+              <span>78.2%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: 50% - 75% -->
+      <div class="story-step" id="step3" data-start="0.50" data-end="0.75">
+        <div class="story-card">
+          <span class="step-number">PHASE 03 / TRAPPING MECHANISMS</span>
+          <h2 class="step-title">Capillary &amp; Residual Trapping</h2>
+          <p class="step-body">
+            As fluid velocity attenuates, interfacial surface tension immobilizes isolated CO₂ droplets within micro-pore throats, ensuring non-migratory structural isolation.
+          </p>
+          <div class="specs-grid">
+            <div class="spec-item">
+              <span>CAPILLARY NUMBER</span>
+              <span>1.4 &times; 10⁻⁶</span>
+            </div>
+            <div class="spec-item">
+              <span>RESIDUAL SATURATION</span>
+              <span>32.5%</span>
+            </div>
+            <div class="spec-item">
+              <span>INTERFACIAL TENSION</span>
+              <span>28.4 mN/m</span>
+            </div>
+            <div class="spec-item">
+              <span>SEAL INTEGRITY</span>
+              <span>100% Confirmed</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: 75% - 100% -->
+      <div class="story-step" id="step4" data-start="0.75" data-end="1.0">
+        <div class="story-card" style="margin-left: auto;">
+          <span class="step-number">PHASE 04 / EQUILIBRIUM</span>
+          <h2 class="step-title">Permanent Geological Sequestration</h2>
+          <p class="step-body">
+            Thermodynamic equilibrium achieved. Dissolution trapping bonds carbon into reservoir brine, converting airborne emissions into permanent subsurface mineral storage.
+          </p>
+          <div class="specs-grid">
+            <div class="spec-item">
+              <span>STORAGE DURATION</span>
+              <span>&gt; 10,000 Years</span>
+            </div>
+            <div class="spec-item">
+              <span>LEAKAGE RISK</span>
+              <span>&lt; 0.001% / Century</span>
+            </div>
+            <div class="spec-item">
+              <span>CARBON CREDITS</span>
+              <span>Verified Gold Standard</span>
+            </div>
+            <div class="spec-item">
+              <span>STATUS</span>
+              <span>Equilibrium Locked</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- HUD Footer Scrub Controller -->
+  <footer class="hud-footer">
+    <div class="footer-left">
+      <button class="interactive-mode-btn" id="toggleDragBtn">
+        <span>&harr;</span>
+        <span id="dragBtnLabel">SWITCH TO DRAG SCRUB</span>
+      </button>
+    </div>
+
+    <div class="footer-center">
+      <div class="scrub-indicator">
+        <span id="frameCounter">FRAME 001 / 096</span>
+        <div class="scrub-bar-track">
+          <div class="scrub-bar-progress" id="progressBar"></div>
+        </div>
+        <span id="pctCounter">0%</span>
+      </div>
+    </div>
+
+    <div class="footer-right">
+      <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">
+        ENGINEERED WITH GOOGLE FLOW (VEO)
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const TOTAL_FRAMES = 96;
+    const FRAME_DIR = 'frames';
+    const canvas = document.getElementById('scrubCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const loaderSplash = document.getElementById('loaderSplash');
+    const frameCounter = document.getElementById('frameCounter');
+    const pctCounter = document.getElementById('pctCounter');
+    const progressBar = document.getElementById('progressBar');
+    const scrollTrack = document.getElementById('scrollTrack');
+
+    // Preload all 96 frames into memory
+    const images = [];
+    let loadedCount = 0;
+
+    for (let i = 1; i <= TOTAL_FRAMES; i++) {
+      const img = new Image();
+      const numStr = String(i).padStart(3, '0');
+      img.src = `${FRAME_DIR}/frame_${numStr}.jpg`;
+      img.onload = () => {
+        loadedCount++;
+        if (loadedCount === TOTAL_FRAMES) {
+          onAllFramesLoaded();
+        }
+      };
+      images.push(img);
+    }
+
+    function onAllFramesLoaded() {
+      // Hide splash
+      loaderSplash.style.opacity = '0';
+      setTimeout(() => loaderSplash.style.display = 'none', 500);
+
+      // Set canvas internal resolution to match image
+      canvas.width = images[0].naturalWidth || 540;
+      canvas.height = images[0].naturalHeight || 960;
+
+      // Draw initial frame
+      renderFrame(0);
+      setupScrollListener();
+      setupDragListener();
+    }
+
+    let currentFrameIndex = 0;
+
+    function renderFrame(index) {
+      if (!images[index] || !images[index].complete) return;
+      currentFrameIndex = index;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(images[index], 0, 0, canvas.width, canvas.height);
+
+      // Update telemetry
+      const numStr = String(index + 1).padStart(3, '0');
+      frameCounter.textContent = `FRAME ${numStr} / 096`;
+      const pct = Math.round((index / (TOTAL_FRAMES - 1)) * 100);
+      pctCounter.textContent = `${pct}%`;
+      progressBar.style.width = `${pct}%`;
+    }
+
+    // Scroll Scrubbing Engine
+    function setupScrollListener() {
+      const steps = [
+        document.getElementById('step1'),
+        document.getElementById('step2'),
+        document.getElementById('step3'),
+        document.getElementById('step4')
+      ];
+
+      window.addEventListener('scroll', () => {
+        if (isDragMode) return; // Ignore scroll if in manual turntable mode
+
+        const maxScroll = scrollTrack.offsetHeight - window.innerHeight;
+        const currentScroll = Math.max(0, Math.min(window.scrollY, maxScroll));
+        const progress = currentScroll / maxScroll;
+
+        const targetFrame = Math.min(TOTAL_FRAMES - 1, Math.floor(progress * TOTAL_FRAMES));
+        requestAnimationFrame(() => renderFrame(targetFrame));
+
+        // Update active story step
+        steps.forEach(step => {
+          const start = parseFloat(step.getAttribute('data-start'));
+          const end = parseFloat(step.getAttribute('data-end'));
+          if (progress >= start && progress < end) {
+            step.classList.add('active');
+          } else {
+            step.classList.remove('active');
+          }
+        });
+      }, { passive: true });
+    }
+
+    // Drag / Turntable Mode Toggle
+    let isDragMode = false;
+    const toggleBtn = document.getElementById('toggleDragBtn');
+    const btnLabel = document.getElementById('dragBtnLabel');
+    const dragOverlay = document.getElementById('dragOverlay');
+
+    toggleBtn.addEventListener('click', () => {
+      isDragMode = !isDragMode;
+      if (isDragMode) {
+        dragOverlay.classList.add('active');
+        toggleBtn.classList.add('active');
+        btnLabel.textContent = 'SWITCH TO SCROLL SCRUB';
+      } else {
+        dragOverlay.classList.remove('active');
+        toggleBtn.classList.remove('active');
+        btnLabel.textContent = 'SWITCH TO DRAG SCRUB';
+      }
+    });
+
+    // Drag Listener
+    function setupDragListener() {
+      let isDragging = false;
+      let startX = 0;
+      let startFrame = 0;
+
+      dragOverlay.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startFrame = currentFrameIndex;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const deltaX = e.clientX - startX;
+        // Sensitivity: 8px drag = 1 frame
+        const frameOffset = Math.floor(deltaX / 8);
+        let newFrame = (startFrame + frameOffset) % TOTAL_FRAMES;
+        if (newFrame < 0) newFrame += TOTAL_FRAMES;
+        requestAnimationFrame(() => renderFrame(newFrame));
+      });
+
+      window.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      // Touch events for mobile
+      dragOverlay.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        startX = e.touches[0].clientX;
+        startFrame = currentFrameIndex;
+      }, { passive: true });
+
+      dragOverlay.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        const deltaX = e.touches[0].clientX - startX;
+        const frameOffset = Math.floor(deltaX / 8);
+        let newFrame = (startFrame + frameOffset) % TOTAL_FRAMES;
+        if (newFrame < 0) newFrame += TOTAL_FRAMES;
+        requestAnimationFrame(() => renderFrame(newFrame));
+      }, { passive: true });
+
+      dragOverlay.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+    }
+  </script>
+</body>
+</html>
